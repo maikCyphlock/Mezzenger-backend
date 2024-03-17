@@ -1,0 +1,136 @@
+package main
+
+import (
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+
+	"github.com/gorilla/mux"
+	_ "github.com/mattn/go-sqlite3"
+)
+
+const (
+	dbFile = "data.db"
+)
+
+func main() {
+	// Importar el driver sqlite3
+
+	// Conectar a la base de datos SQLite
+	db, err := sql.Open("sqlite3", dbFile)
+
+	// Crear la tabla si no existe
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS usuarios (id INTEGER PRIMARY KEY, nombre TEXT, email TEXT)")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer db.Close()
+
+	// Crear un enrutador HTTP
+	router := mux.NewRouter()
+
+	// Definir rutas
+	router.HandleFunc("/", getUsersHandler(db))
+	router.HandleFunc("/usuarios", createUserHandler(db))
+	router.HandleFunc("/usuarios/{id}", getUserByIDHandler(db))
+
+	// Iniciar el servidor
+	log.Println("Servidor iniciado en el puerto 8080")
+	log.Fatal(http.ListenAndServe(":8080", router))
+}
+
+func createUserHandler(db *sql.DB) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Obtener los datos del usuario desde la solicitud HTTP
+		nombre := r.FormValue("nombre")
+		email := r.FormValue("email")
+
+		// Insertar el usuario en la base de datos
+		result, err := db.Exec("INSERT INTO usuarios (nombre, email) VALUES (?, ?)", nombre, email)
+
+		if err != nil {
+			log.Fatal(err)
+
+		}
+
+		// Obtener el ID del usuario insertado
+		id, err := result.LastInsertId()
+
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		// Mostrar el ID del usuario insertado en la respuesta
+		fmt.Fprintf(w, "ID del usuario insertado: %d", id)
+	}
+}
+func getUsersHandler(db *sql.DB) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Obtener datos de la base de datos
+		rows, err := db.Query("SELECT * FROM usuarios")
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer rows.Close()
+
+		// Crear un array para almacenar los resultados
+		usuarios := make([]map[string]interface{}, 0)
+
+		// Recorrer los resultados y agregarlos al array
+		for rows.Next() {
+			var id int
+			var nombre string
+			var email string
+			err := rows.Scan(&id, &nombre, &email)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			usuario := map[string]interface{}{
+				"id":     id,
+				"nombre": nombre,
+				"email":  email,
+			}
+
+			usuarios = append(usuarios, usuario)
+		}
+
+		// Crear una respuesta JSON con todos los usuarios
+		jsonResponse, err := json.Marshal(usuarios)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(jsonResponse)
+	}
+}
+
+func getUserByIDHandler(db *sql.DB) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Obtener el ID del usuario de la URL
+		userID := mux.Vars(r)["id"]
+
+		// Obtener el usuario de la base de datos
+		var usuario usuario
+		err := db.QueryRow("SELECT * FROM usuarios WHERE id = ?", userID).Scan(&usuario.ID, &usuario.Nombre, &usuario.Email)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				http.NotFound(w, r)
+				return
+			}
+			log.Fatal(err)
+		}
+
+		// Mostrar el usuario en la respuesta
+		fmt.Fprintf(w, "ID: %d, Nombre: %s, Email: %s\n", usuario.ID, usuario.Nombre, usuario.Email)
+	}
+}
+
+type usuario struct {
+	ID     int
+	Nombre string
+	Email  string
+}
