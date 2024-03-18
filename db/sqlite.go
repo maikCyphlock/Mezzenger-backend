@@ -2,9 +2,10 @@ package db
 
 import (
 	"database/sql"
+	_ "db/models"
 	"log"
 
-	_ "db/models"
+	"golang.org/x/crypto/bcrypt"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -27,10 +28,20 @@ type User struct {
 	Password string
 }
 
-// Error implements error.
+// GenerateHashedPassword generates a hashed password from a plaintext password.
+// The returned string is the hashed password.
+// The error is not nil if there was an error hashing the password.
+func GenerateHashedPassword(password string) (string, error) {
+	const minCost = 10
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), minCost)
+
+	return string(hashedPassword), err
+}
 
 func CreateUser(user *User) (u *User, err error) {
-	res, err := DB.Exec("INSERT INTO users (username, password) VALUES (?, ?)", user.Username, user.Password)
+	hashedPassword, err := GenerateHashedPassword(user.Password)
+	res, err := DB.Exec("INSERT INTO users (username, password) VALUES (?, ?)", user.Username, hashedPassword)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -45,14 +56,24 @@ func CreateUser(user *User) (u *User, err error) {
 
 }
 
-func GetUserByUsernameAndPassword(username, password string) (*User, error) {
+func GetUserByCredentials(username, password string) (*User, error) {
 	var user User
-	err := DB.QueryRow("SELECT id, username, password FROM users WHERE username = ? AND password = ?", username, password).Scan(&user.ID, &user.Username, &user.Password)
+	var hashedPassword string
+	var err error
+
+	err = DB.QueryRow("SELECT id, username, password FROM users WHERE username = ?", username).Scan(&user.ID, &user.Username, &hashedPassword)
+
 	if err != nil {
 		return nil, err
 	}
+	err = bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(password))
+	if err != nil {
+		return nil, err
+	}
+
 	return &user, nil
 }
+
 func createTable() {
 	_, err := DB.Exec(`
         CREATE TABLE IF NOT EXISTS users (

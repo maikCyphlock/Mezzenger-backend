@@ -41,7 +41,7 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	username := credentials["username"]
 	password := credentials["password"]
 
-	user, err := db.GetUserByUsernameAndPassword(username, password)
+	user, err := db.GetUserByCredentials(username, password)
 	if err != nil {
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
